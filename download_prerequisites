@@ -1,0 +1,170 @@
+#! /bin/sh
+#! -*- coding:utf-8; mode:shell-script; -*-
+
+# Download some prerequisites needed by GCC.
+# Run this from the top level of the GCC source tree and the GCC build will do
+# the right thing.  Run it with the `--help` option for more information.
+#
+# (C) 2010-2021 Free Software Foundation
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+# 
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+# 
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see http://www.gnu.org/licenses/.
+
+program='download_prerequisites'
+version='(unversioned)'
+
+# MAINTAINERS: If you update the package versions below, please
+# remember to also update the files `contrib/prerequisites.sha512` and
+# `contrib/prerequisites.md5` with the new checksums.
+
+gmp='gmp-6.3.0.tar.gz'
+mpfr='mpfr-4.2.1.tar.gz'
+mpc='mpc-1.2.1.tar.gz'
+isl='isl-0.24.tar.bz2'
+
+wget https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.gz
+wget https://mirrors.tuna.tsinghua.edu.cn/gnu/mpfr/mpfr-4.2.1.tar.gz
+wget http://ftp.gnu.org/gnu/mpc/mpc-1.2.1.tar.gz
+wget http://gcc.gnu.org/pub/gcc/infrastructure/isl-0.24.tar.bz2
+
+echo_archives() {
+    echo "${gmp}"
+    echo "${mpfr}"
+    echo "${mpc}"
+    if [ ${graphite} -gt 0 ]; then echo "${isl}"; fi
+}
+
+graphite=1
+verify=1
+force=0
+OS=$(uname)
+
+if type wget > /dev/null ; then
+  fetch='wget'
+else
+  fetch='curl -LO'
+fi
+chksum_extension='sha512'
+directory='.'
+
+helptext="usage: ${program} [OPTION...]
+
+Downloads some prerequisites needed by GCC.  Run this from the top level of the
+GCC source tree and the GCC build will do the right thing.
+
+The following options are available:
+
+ --directory=DIR  download and unpack packages into DIR instead of '.'
+ --force          download again overwriting existing packages
+ --no-force       do not download existing packages again (default)
+ --isl            download ISL, needed for Graphite loop optimizations (default)
+ --graphite       same as --isl
+ --no-isl         don't download ISL
+ --no-graphite    same as --no-isl
+ --verify         verify package integrity after download (default)
+ --no-verify      don't verify package integrity
+ --sha512         use SHA512 checksum to verify package integrity (default)
+ --md5            use MD5 checksum to verify package integrity
+ --help           show this text and exit
+ --version        show version information and exit
+"
+
+versiontext="${program} ${version}
+Copyright (C) 2016-2023 Free Software Foundation, Inc.
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE."
+
+die() {
+    echo "error: $@" >&2
+    exit 1
+}
+
+for arg in "$@"
+do
+    case "${arg}" in
+        --help)
+            echo "${helptext}"
+            exit
+            ;;
+        --version)
+            echo "${versiontext}"
+            exit
+            ;;
+    esac
+done
+unset arg
+
+[ -e ./gcc/BASE-VER ]                                                         \
+    || die "You must run this script in the top-level GCC source directory"
+
+[ -d "${directory}" ]                                                         \
+    || die "No such directory: ${directory}"
+
+for ar in $(echo_archives)
+do
+    if [ ${force} -gt 0 ]; then rm -f "${directory}/${ar}"; fi
+    [ -e "${directory}/${ar}" ]                                               \
+        || ( cd "${directory}" && ${fetch} --no-verbose "${base_url}${ar}" )  \
+        || die "Cannot download ${ar} from ${base_url}"
+done
+unset ar
+
+if [ ${verify} -gt 0 ]
+then
+    chksumfile="contrib/prerequisites.${chksum_extension}"
+    [ -r "${chksumfile}" ] || die "No checksums available"
+    for ar in $(echo_archives)
+    do
+        grep "${ar}" "${chksumfile}"                                          \
+            | ( cd "${directory}" && ${chksum} )                              \
+            || die "Cannot verify integrity of possibly corrupted file ${ar}"
+    done
+    unset chksumfile
+fi
+unset ar
+
+for ar in $(echo_archives)
+do
+    package="${ar%.tar*}"
+    if [ ${force} -gt 0 ]; then rm -rf "${directory}/${package}"; fi
+    case $ar in
+    *.gz)
+	uncompress='gzip -d'
+	;;
+    *.bz2)
+	uncompress='bzip2 -d'
+	;;
+    *)
+	uncompress='cat'
+	;;
+    esac
+    [ -e "${directory}/${package}" ]                                          \
+        || ( cd "${directory}" && $uncompress <"${ar}" | tar -xf - )          \
+        || die "Cannot extract package from ${ar}"
+    unset package
+done
+unset ar
+
+for ar in $(echo_archives)
+do
+    target="${directory}/${ar%.tar*}/"
+    linkname="${ar%-*}"
+    if [ ${force} -gt 0 ]; then rm -f "${linkname}"; fi
+    [ -e "${linkname}" ]                                                      \
+        || ln -s "${target}" "${linkname}"                                    \
+        || die "Cannot create symbolic link ${linkname} --> ${target}"
+    unset target linkname
+done
+unset ar
+
+echo "所有基础环境已下载成功."
